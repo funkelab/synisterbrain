@@ -34,7 +34,7 @@ def submit_jobs(db_credentials,
     brain_db = BrainDb(db_credentials,
                        db_name_write,
                        collection_name_write)
-    brain_db.create()
+    brain_db.create(n_gpus, n_cpus)
 
     dx = model.input_shape[2] * dataset.voxel_size[2]
     dy = model.input_shape[1] * dataset.voxel_size[1]
@@ -62,8 +62,15 @@ def submit_jobs(db_credentials,
             #cmd = base_cmd.split(" ")
             cmd = base_cmd
         
-        cmd = [c.replace('"',"") for c in cmd.split(" ")]
-        Popen(cmd)
+        #cmd = [c.replace('"',"") for c in cmd.split(" ")]
+
+        cmd = [c for c in cmd.split(" ") if c != '']
+        #print(*cmd)
+        cmd_string = ""
+        for c in cmd:
+            cmd_string += str(c) + " "
+        print(cmd_string)
+        Popen(cmd_string, shell=True)
 
 if __name__ == "__main__":
     log_config("brain.log")
@@ -71,14 +78,14 @@ if __name__ == "__main__":
                 db_name_read="synful_synapses",
                 collection_name_read="partners",
                 db_name_write="synful_predictions",
-                collection_name_write="predictions_v0",
+                collection_name_write="predictions_v2",
                 dataset=Fafb(),
                 model=FafbModel(),
-                n_gpus=2,
+                n_gpus=20,
                 n_cpus=5,
-                batch_size=8,
+                batch_size=16,
                 prefetch_factor=10,
-                queue=None,
+                queue="gpu_any",
                 singularity_container=None,
                 mount_dirs=["/nrs", "/scratch", "/groups", "/misc"])
 

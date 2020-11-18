@@ -19,6 +19,7 @@ class BrainDb(object):
 
         self.db_name = db_name
         self.collection = collection_name
+        self.meta_collection = collection_name + "_meta"
 
     def __get_client(self):
         client = MongoClient(self.auth_string, connect=False)
@@ -35,7 +36,7 @@ class BrainDb(object):
         db = self.__get_db()
         return db[self.collection]
 
-    def create(self, overwrite=False):
+    def create(self, n_gpus, n_cpus, overwrite=False):
         db = self.__get_db()
 
         if overwrite:
@@ -46,6 +47,33 @@ class BrainDb(object):
         coll.create_index([("id", ASCENDING)],
                             name="id",
                             sparse=True)
+
+        
+        coll_meta = db[self.meta_collection]
+        worker_docs = []
+        for i in range(n_gpus):
+            for k in range(n_cpus):
+                worker_doc = {"gpu_id": i, "cpu_id": k, "max_cursor_id": 0}
+                coll_meta.update_one({"$and":[{"gpu_id": worker_doc["gpu_id"]}, {"cpu_id": worker_doc["cpu_id"]}]},
+                                     {"$setOnInsert": worker_doc},
+                                      upsert=True)
+                #coll_meta.insert_many(worker_docs)
+
+    def update_meta(self, gpu_id, cpu_id, max_cursor_id):
+        db = self.__get_db()
+        coll_meta = db[self.meta_collection]
+        coll_meta.update_one({"$and":[{"gpu_id": gpu_id}, {"cpu_id": cpu_id}]}, 
+                             {"$set": {"max_cursor_id": max_cursor_id}}, 
+                             upsert=False)
+
+    def get_max_cursor_ids(self):
+        db = self.__get_db()
+        coll_meta = db[self.meta_collection]
+        max_cursor_ids = {}
+        cursor = coll_meta.find({})
+        for doc in cursor:
+            max_cursor_ids[(doc["gpu_id"], doc["cpu_id"])] = doc["max_cursor_id"]
+        return max_cursor_ids
 
     def write_predictions(self, predictions):
         coll = self.__get_collection()

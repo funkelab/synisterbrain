@@ -9,7 +9,7 @@ import logging
 import time
 log = logging.getLogger(__name__)
 
-class MongoIterator(object):
+class CSVIterator(object):
     def __init__(self, 
                  credentials, 
                  db_name, 
@@ -20,7 +20,6 @@ class MongoIterator(object):
                  gpu_id,
                  n_cpus,
                  cpu_id,
-                 max_cursor_ids=None,
                  transform=None):
 
         log.info(f"Connect to {db_name}/{collection_name}...")
@@ -44,11 +43,6 @@ class MongoIterator(object):
 
         start = time.time()
         log.info("Partition DB to workers...")
-        max_cursor_id = 0
-        if max_cursor_ids is not None:
-            max_cursor_id = max_cursor_ids[(gpu_id, cpu_id)]
-        
-        log.info(f"Worker g{gpu_id} c{cpu_id} init from max_cursor id {max_cursor_id}...")
         self.n_gpus = n_gpus
         self.gpu_id = gpu_id
         self.n_documents = self.collection.count_documents({})
@@ -59,11 +53,10 @@ class MongoIterator(object):
         self.n_cpus = n_cpus
         self.cpu_offset = int(math.ceil(float(self.cpu_id)/self.n_cpus * self.gpu_len))
         self.cpu_len = int(math.ceil(1./self.n_cpus * self.gpu_len))
-        self.doc_offset = self.gpu_offset + self.cpu_offset + max_cursor_id
-        self.doc_len = self.cpu_len - max_cursor_id
+        self.doc_offset = self.gpu_offset + self.cpu_offset
+        self.doc_len = self.cpu_len
         log.info(f"Partition ({self.gpu_id}, {self.cpu_id}): Start {self.doc_offset}, Len {self.doc_len}")
-
-        self.cursor = self.collection.find({}, no_cursor_timeout=True).skip(self.doc_offset).limit(self.doc_len)
+        self.cursor = self.collection.find({}).skip(self.doc_offset).limit(self.doc_len)
         log.info(f"...took {time.time() - start} seconds")
 
         self.dataset = dataset
@@ -80,7 +73,6 @@ class MongoIterator(object):
         self.dx = dx
         self.dy = dy
         self.dz = dz
-        self.cursor_id = 0
 
     def __get_client(self):
         client = MongoClient(self.auth_string, connect=False)
@@ -100,7 +92,6 @@ class MongoIterator(object):
 
     def __next__(self):
         doc = next(self.cursor, None)
-        self.cursor_id += 1
         pre_x = int(doc["pre_x"])
         pre_y = int(doc["pre_y"])
         pre_z = int(doc["pre_z"])
@@ -115,8 +106,7 @@ class MongoIterator(object):
 
         if self.transform is not None:
             array_data = self.transform(array_data)
-        return {"id": synapse_id, "data": array_data, "cursor_id": self.cursor_id, 
-                "gpu_id": self.gpu_id, "cpu_id": self.cpu_id}
+        return {"id": synapse_id,"data": array_data}
 
 if __name__ == "__main__":
     mongo_em = MongoIterator("/groups/funke/home/ecksteinn/Projects/synex/synister/db_credentials.ini",

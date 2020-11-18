@@ -47,6 +47,8 @@ def predict(db_credentials,
                       db_name_write,
                       collection_name_write)
 
+    max_cursor_ids = braindb.get_max_cursor_ids()
+
     dx = model.input_shape[2] * dataset.voxel_size[2]
     dy = model.input_shape[1] * dataset.voxel_size[1]
     dz = model.input_shape[0] * dataset.voxel_size[0]
@@ -61,7 +63,8 @@ def predict(db_credentials,
                                   gpu_id,
                                   n_cpus,
                                   batch_size,
-                                  prefetch_factor)
+                                  prefetch_factor,
+                                  max_cursor_ids)
 
     torch_model = model.init_model()
     torch_model.eval()
@@ -73,22 +76,31 @@ def predict(db_credentials,
     for i, sample in enumerate(tqdm(data_loader)):
         ids = sample['id']
         data = sample['data']
+        cursor_ids = sample["cursor_id"]
+        gpu_ids = sample["gpu_id"]
+        cpu_ids = sample["cpu_id"]
         data = data.to(device)
         prediction = torch_model(data)
         prediction = model.softmax(prediction)
 
         batch_prediction = []
+        meta_updates = []
+        worker_id_to_max_cursor_id = {}
         # Iterate over batch and grab predictions
         for k in range(np.shape(prediction)[0]):
             out_k = prediction[k,:].tolist()
             nt_probability = {model.neurotransmitter_list[i]:
                               out_k[i] for i in range(len(model.neurotransmitter_list))}
             nt_probability["id"] = ids[k]
+            # cursor ids are monotonic for each worker:
+            worker_id_to_max_cursor_id[(gpu_ids[k], cpu_ids[k])] = cursor_ids[k]
             batch_prediction.append(nt_probability)
         braindb.write_predictions(batch_prediction)
-        if i > 2: break
+        for worker_id, max_id in worker_id_to_max_cursor_id.items():
+            braindb.update_meta(worker_id[0], worker_id[1], max_id)
 
     total_time = time.time() - start
+    log.info(f"Total predict time {total_time}")
 
 if __name__ == "__main__":
     args = parser.parse_args()
