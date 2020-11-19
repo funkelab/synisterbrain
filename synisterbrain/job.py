@@ -9,6 +9,7 @@ from synistereq.models import FafbModel, HemiModel
 from synistereq.datasets import Fafb, Hemi
 from synistereq.utils import log_config
 import torch
+import pymongo
 
 import logging
 log = logging.getLogger(__name__)
@@ -41,65 +42,72 @@ def predict(db_credentials,
             batch_size,
             prefetch_factor):
 
-    log.info(f"Prepare GPU {gpu_id}...")
-    log.info(f"Connect worker {gpu_id} to db {db_name_write}.{collection_name_write}")
-    braindb = BrainDb(db_credentials,
-                      db_name_write,
-                      collection_name_write)
-
-    max_cursor_ids = braindb.get_max_cursor_ids()
-
-    dx = model.input_shape[2] * dataset.voxel_size[2]
-    dy = model.input_shape[1] * dataset.voxel_size[1]
-    dz = model.input_shape[0] * dataset.voxel_size[0]
-
-    log.info(f"Get data loader...")
-    data_loader = get_data_loader(db_credentials,
-                                  db_name_read,
-                                  collection_name_read,
-                                  dataset,
-                                  dx,dy,dz,
-                                  n_gpus,
-                                  gpu_id,
-                                  n_cpus,
-                                  batch_size,
-                                  prefetch_factor,
-                                  max_cursor_ids)
-
-    torch_model = model.init_model()
-    torch_model.eval()
-
-    log.info(f"Start prediction...")
-    nt_probabilities = []
     start = time.time()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    for i, sample in enumerate(tqdm(data_loader)):
-        ids = sample['id']
-        data = sample['data']
-        cursor_ids = sample["cursor_id"]
-        gpu_ids = sample["gpu_id"]
-        cpu_ids = sample["cpu_id"]
-        data = data.to(device)
-        prediction = torch_model(data)
-        prediction = model.softmax(prediction)
+    while True:
+        try:
+            log.info(f"Prepare GPU {gpu_id}...")
+            log.info(f"Connect worker {gpu_id} to db {db_name_write}.{collection_name_write}")
+            braindb = BrainDb(db_credentials,
+                              db_name_write,
+                              collection_name_write)
 
-        batch_prediction = []
-        meta_updates = []
-        worker_id_to_max_cursor_id = {}
-        # Iterate over batch and grab predictions
-        for k in range(np.shape(prediction)[0]):
-            out_k = prediction[k,:].tolist()
-            nt_probability = {model.neurotransmitter_list[i]:
-                              out_k[i] for i in range(len(model.neurotransmitter_list))}
-            nt_probability["id"] = ids[k]
-            # cursor ids are monotonic for each worker:
-            worker_id_to_max_cursor_id[(gpu_ids[k], cpu_ids[k])] = cursor_ids[k]
-            batch_prediction.append(nt_probability)
-        braindb.write_predictions(batch_prediction)
-        for worker_id, max_id in worker_id_to_max_cursor_id.items():
-            braindb.update_meta(worker_id[0], worker_id[1], max_id)
+            max_cursor_ids = braindb.get_max_cursor_ids()
 
-    total_time = time.time() - start
+            dx = model.input_shape[2] * dataset.voxel_size[2]
+            dy = model.input_shape[1] * dataset.voxel_size[1]
+            dz = model.input_shape[0] * dataset.voxel_size[0]
+
+            log.info(f"Get data loader...")
+            data_loader = get_data_loader(db_credentials,
+                                          db_name_read,
+                                          collection_name_read,
+                                          dataset,
+                                          dx,dy,dz,
+                                          n_gpus,
+                                          gpu_id,
+                                          n_cpus,
+                                          batch_size,
+                                          prefetch_factor,
+                                          max_cursor_ids)
+
+            torch_model = model.init_model()
+            torch_model.eval()
+
+            log.info(f"Start prediction...")
+            nt_probabilities = []
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            for i, sample in enumerate(tqdm(data_loader)):
+                ids = sample['id']
+                data = sample['data']
+                cursor_ids = sample["cursor_id"]
+                gpu_ids = sample["gpu_id"]
+                cpu_ids = sample["cpu_id"]
+                data = data.to(device)
+                prediction = torch_model(data)
+                prediction = model.softmax(prediction)
+
+                batch_prediction = []
+                meta_updates = []
+                worker_id_to_max_cursor_id = {}
+                # Iterate over batch and grab predictions
+                for k in range(np.shape(prediction)[0]):
+                    out_k = prediction[k,:].tolist()
+                    nt_probability = {model.neurotransmitter_list[i]:
+                                      out_k[i] for i in range(len(model.neurotransmitter_list))}
+                    nt_probability["id"] = ids[k]
+                    # cursor ids are monotonic for each worker:
+                    worker_id_to_max_cursor_id[(gpu_ids[k], cpu_ids[k])] = cursor_ids[k]
+                    batch_prediction.append(nt_probability)
+                braindb.write_predictions(batch_prediction)
+                for worker_id, max_id in worker_id_to_max_cursor_id.items():
+                    braindb.update_meta(worker_id[0], worker_id[1], max_id)
+            
+            total_time = time.time() - start
+            break
+        except pymongo.errors.CursorNotFound:
+            log.info(f"Cursor lost... Restart.")
+            pass
+
     log.info(f"Total predict time {total_time}")
 
 if __name__ == "__main__":
