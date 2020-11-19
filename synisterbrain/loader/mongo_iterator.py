@@ -47,8 +47,9 @@ class MongoIterator(object):
         max_cursor_id = 0
         if max_cursor_ids is not None:
             max_cursor_id = max_cursor_ids[(gpu_id, cpu_id)]
-        
-        log.info(f"Worker g{gpu_id} c{cpu_id} init from max_cursor id {max_cursor_id}...")
+        self.cursor_id = max_cursor_id
+
+        log.info(f"Worker g{gpu_id} c{cpu_id} init from max_cursor id {self.cursor_id}...")
         self.n_gpus = n_gpus
         self.gpu_id = gpu_id
         self.n_documents = self.collection.count_documents({})
@@ -59,8 +60,8 @@ class MongoIterator(object):
         self.n_cpus = n_cpus
         self.cpu_offset = int(math.ceil(float(self.cpu_id)/self.n_cpus * self.gpu_len))
         self.cpu_len = int(math.ceil(1./self.n_cpus * self.gpu_len))
-        self.doc_offset = self.gpu_offset + self.cpu_offset + max_cursor_id
-        self.doc_len = self.cpu_len - max_cursor_id
+        self.doc_offset = self.gpu_offset + self.cpu_offset + self.cursor_id
+        self.doc_len = self.cpu_len - self.cursor_id
         log.info(f"Partition ({self.gpu_id}, {self.cpu_id}): Start {self.doc_offset}, Len {self.doc_len}")
 
         self.cursor = self.collection.find({}, no_cursor_timeout=True).skip(self.doc_offset).limit(self.doc_len)
@@ -80,7 +81,6 @@ class MongoIterator(object):
         self.dx = dx
         self.dy = dy
         self.dz = dz
-        self.cursor_id = 0
 
     def __get_client(self):
         client = MongoClient(self.auth_string, connect=False)
