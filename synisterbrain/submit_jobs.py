@@ -83,7 +83,7 @@ if __name__ == "__main__":
                 model=FafbModel(),
                 n_gpus=20,
                 n_cpus=5,
-                batch_size=16,
+                batch_size=8,
                 prefetch_factor=10,
                 queue="gpu_any",
                 singularity_container=None,
