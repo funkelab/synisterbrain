@@ -77,6 +77,9 @@ def predict(db_credentials,
             nt_probabilities = []
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             for i, sample in enumerate(tqdm(data_loader)):
+                # Cursor done
+                if sample is None:
+                    break
                 ids = sample['id']
                 data = sample['data']
                 cursor_ids = sample["cursor_id"]
