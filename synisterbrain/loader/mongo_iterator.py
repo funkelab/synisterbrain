@@ -75,7 +75,7 @@ class MongoIterator(object):
                                   self.dset)
         self.transform = transform
 
-        if dx % 80 != 0 or dy % 8 != 0 or dz % 8 != 0:
+        if dx % 8 != 0 or dy % 8 != 0 or dz % 80 != 0:
             raise ValueError("Roi size must be divisible by two")
 
         self.dx = dx
@@ -100,6 +100,8 @@ class MongoIterator(object):
 
     def __next__(self):
         doc = next(self.cursor, None)
+        if doc == None:
+            return None
         self.cursor_id += 1
         pre_x = int(doc["pre_x"])
         pre_y = int(doc["pre_y"])
@@ -108,15 +110,18 @@ class MongoIterator(object):
         center = np.array([pre_z, pre_y, pre_x])
         offset = center - np.array([self.dz/2, self.dy/2, self.dx/2])
         roi = daisy.Roi(offset, (self.dz,self.dy,self.dx))
-        array = self.data[roi]
-        array.materialize()
-        array_data = array.data.astype(np.float32)
-        array_data = self.dataset.normalize(array_data)
+        array_data = None
+        if self.data.roi.contains(roi):
+            array = self.data[roi]
+            array.materialize()
+            array_data = array.data.astype(np.float32)
+            array_data = self.dataset.normalize(array_data)
 
-        if self.transform is not None:
+        if self.transform is not None and array_data is not None:
             array_data = self.transform(array_data)
+
         return {"id": synapse_id, "data": array_data, "cursor_id": self.cursor_id, 
-                "gpu_id": self.gpu_id, "cpu_id": self.cpu_id}
+                "gpu_id": self.gpu_id, "cpu_id": self.cpu_id, "roi": roi}
 
 if __name__ == "__main__":
     mongo_em = MongoIterator("/groups/funke/home/ecksteinn/Projects/synex/synister/db_credentials.ini",
@@ -125,10 +130,13 @@ if __name__ == "__main__":
                              Fafb(),
                              400,
                              400,
-                             80)
+                             80,
+                             1,0,1,0)
+
+    print(Fafb().voxel_size)
 
     i = 0
     for doc in mongo_em:
-        print(np.shape(doc))
+        print(doc["id"], doc["roi"])
         i += 1
         if i > 2: break
