@@ -46,7 +46,7 @@ class BrainDb(object):
         coll = db[self.collection]
         coll.create_index([("id", ASCENDING)],
                             name="id",
-                            sparse=True)
+                            unique=True)
 
         
         coll_meta = db[self.meta_collection]
@@ -78,3 +78,27 @@ class BrainDb(object):
     def write_predictions(self, predictions):
         coll = self.__get_collection()
         coll.insert_many(predictions)
+
+    def validate_ids(self, delete_duplicates=False):
+        coll = self.__get_collection()
+        q = coll.aggregate([
+          { "$group": {
+            "_id": { "id": "$id" }, 
+            "uniqueIds": { "$addToSet": "$_id" },
+            "count": { "$sum": 1 } 
+          } }, 
+          { "$match": { 
+            "count": { "$gte": 2 } 
+          } },
+          { "$sort" : { "count" : -1} },
+        ], allowDiskUse=True)
+        non_unique_docs = [v for v in q]
+        for v in non_unique_docs:
+            print(v["_id"]["id"])
+        print("N not unique:", len(non_unique_docs))
+
+        print("Delete...")
+        if delete_duplicates:
+            for v in non_unique_docs:
+                coll.delete_one({"_id": v["uniqueIds"][0]})
+
