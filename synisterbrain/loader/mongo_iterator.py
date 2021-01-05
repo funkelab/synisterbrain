@@ -4,9 +4,12 @@ import zarr
 import daisy
 import math
 from pymongo import MongoClient
-
 import logging
 import time
+from synistereq.datasets import Fafb
+
+from synisterbrain.brain_db import BrainDb
+
 log = logging.getLogger(__name__)
 
 class MongoIterator(object):
@@ -14,57 +17,20 @@ class MongoIterator(object):
                  credentials, 
                  db_name, 
                  collection_name,
+                 predict_id,
                  dataset,
                  dx,dy,dz,
                  n_gpus,
                  gpu_id,
                  n_cpus,
                  cpu_id,
-                 max_cursor_ids=None,
                  transform=None):
 
-        log.info(f"Connect to {db_name}/{collection_name}...")
-        with open(credentials) as fp:
-            config = ConfigParser()
-            config.read_file(fp)
-            self.credentials = {}
-            self.credentials["user"] = config.get("Credentials", "user")
-            self.credentials["password"] = config.get("Credentials", "password")
-            self.credentials["host"] = config.get("Credentials", "host")
-            self.credentials["port"] = config.get("Credentials", "port")
-
-        self.auth_string = 'mongodb://{}:{}@{}:{}'.format(self.credentials["user"],
-                                                          self.credentials["password"],
-                                                          self.credentials["host"],
-                                                          self.credentials["port"])
-
-        self.db_name = db_name
-        self.collection_name = collection_name
-        self.collection = self.__get_collection()
+        self.db = BrainDb(credentials, db_name, collection_name, predict_id)
 
         start = time.time()
         log.info("Partition DB to workers...")
-        max_cursor_id = 0
-        if max_cursor_ids is not None:
-            max_cursor_id = max_cursor_ids[(gpu_id, cpu_id)]
-        self.cursor_id = max_cursor_id
-
-        log.info(f"Worker g{gpu_id} c{cpu_id} init from max_cursor id {self.cursor_id}...")
-        self.n_gpus = n_gpus
-        self.gpu_id = gpu_id
-        self.n_documents = self.collection.count_documents({})
-        self.gpu_offset = int(math.ceil(float(self.gpu_id)/self.n_gpus * self.n_documents))
-        self.gpu_len = int(math.ceil(1./self.n_gpus * self.n_documents))
-
-        self.cpu_id = cpu_id
-        self.n_cpus = n_cpus
-        self.cpu_offset = int(math.ceil(float(self.cpu_id)/self.n_cpus * self.gpu_len))
-        self.cpu_len = int(math.ceil(1./self.n_cpus * self.gpu_len))
-        self.doc_offset = self.gpu_offset + self.cpu_offset + self.cursor_id
-        self.doc_len = self.cpu_len - self.cursor_id
-        log.info(f"Partition ({self.gpu_id}, {self.cpu_id}): Start {self.doc_offset}, Len {self.doc_len}")
-
-        self.cursor = self.collection.find({}, no_cursor_timeout=True).skip(self.doc_offset).limit(self.doc_len)
+        self.cursor = self.get_cursor(n_gpus, n_cpus, gpu_id, cpu_id) 
         log.info(f"...took {time.time() - start} seconds")
 
         self.dataset = dataset
@@ -82,27 +48,40 @@ class MongoIterator(object):
         self.dy = dy
         self.dz = dz
 
-    def __get_client(self):
-        client = MongoClient(self.auth_string, connect=False)
-        return client
+    def get_chunks(self, n_elements, k_chunks):
+        ch = [(n_elements // k_chunks) + (1 if i < (n_elements % k_chunks) else 0) for i in range(k_chunks)]
+        return ch
 
-    def __get_db(self):
-        client = self.__get_client()
-        db = client[self.db_name]
-        return db
+    def get_cursor(self, n_gpus, n_cpus, gpu_id, cpu_id):
+        n_open_documents = self.db.count_docs({self.db.predicted_field: False})
+        gpu_chunks = self.get_chunks(n_open_documents, n_gpus)
+        print(len(gpu_chunks))
+        print(gpu_chunks)
+        print(gpu_id)
+        gpu_offset = int(np.sum(gpu_chunks[:gpu_id]))
+        gpu_len = gpu_chunks[gpu_id]
+        
+        cpu_chunks = self.get_chunks(gpu_len, n_cpus)
+        cpu_offset = int(np.sum(cpu_chunks[:cpu_id]))
+        cpu_len = cpu_chunks[cpu_id]
 
-    def __get_collection(self):
-        db = self.__get_db()
-        return db[self.collection_name]
+        doc_offset = gpu_offset + cpu_offset
+        doc_len = cpu_len
 
+        log.info(f"Partition ({gpu_id}, {cpu_id}): Start {doc_offset}, Len {doc_len}")
+        print("GPU", gpu_offset, gpu_len)
+        print("CPU", cpu_offset, cpu_len)
+        print("DOC", doc_offset, doc_len)
+        cursor = self.db.get_not_predicted_cursor(doc_offset, doc_len)
+        return cursor
+ 
     def __iter__(self):
-         return self
+        return self
 
     def __next__(self):
         doc = next(self.cursor, None)
         if doc == None:
             return None
-        self.cursor_id += 1
         pre_x = int(doc["pre_x"])
         pre_y = int(doc["pre_y"])
         pre_z = int(doc["pre_z"])
@@ -120,13 +99,13 @@ class MongoIterator(object):
         if self.transform is not None and array_data is not None:
             array_data = self.transform(array_data)
 
-        return {"id": synapse_id, "data": array_data, "cursor_id": self.cursor_id, 
-                "gpu_id": self.gpu_id, "cpu_id": self.cpu_id, "roi": roi}
+        return {"id": synapse_id, "data": array_data} 
 
 if __name__ == "__main__":
     mongo_em = MongoIterator("/groups/funke/home/ecksteinn/Projects/synex/synister/db_credentials.ini",
                              "synful_synapses",
                              "partners",
+                             3,
                              Fafb(),
                              400,
                              400,
@@ -137,6 +116,6 @@ if __name__ == "__main__":
 
     i = 0
     for doc in mongo_em:
-        print(doc["id"], doc["roi"])
+        print(doc)
         i += 1
         if i > 2: break

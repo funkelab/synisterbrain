@@ -2,7 +2,7 @@ from pymongo import MongoClient, IndexModel, ASCENDING
 from configparser import ConfigParser
 
 class BrainDb(object):
-    def __init__(self, credentials, db_name, collection_name):
+    def __init__(self, credentials, db_name, collection_name, predict_id):
         with open(credentials) as fp:
             config = ConfigParser()
             config.read_file(fp)
@@ -19,6 +19,9 @@ class BrainDb(object):
 
         self.db_name = db_name
         self.collection = collection_name
+        self.predict_id = predict_id
+        self.predicted_field = f"predicted_{self.predict_id}"
+        self.nt_field = f"nts_{self.predict_id}"
         self.meta_collection = collection_name + "_meta"
 
     def __get_client(self):
@@ -36,69 +39,38 @@ class BrainDb(object):
         db = self.__get_db()
         return db[self.collection]
 
-    def create(self, n_gpus, n_cpus, overwrite=False):
-        db = self.__get_db()
+    def initialize(self):
+        coll = self.__get_collection()
+        self.reset()
+        coll.update_many({}, {"$set": {self.predicted_field: False}}, upsert=False)
 
-        if overwrite:
-            db.drop_collection(self.collection)
-
-        # Synapses
-        coll = db[self.collection]
-        coll.create_index([("id", ASCENDING)],
-                            name="id",
-                            unique=True)
-
-        
-        coll_meta = db[self.meta_collection]
-        worker_docs = []
-        for i in range(n_gpus):
-            for k in range(n_cpus):
-                worker_doc = {"gpu_id": i, "cpu_id": k, "max_cursor_id": 0}
-                coll_meta.update_one({"$and":[{"gpu_id": worker_doc["gpu_id"]}, {"cpu_id": worker_doc["cpu_id"]}]},
-                                     {"$setOnInsert": worker_doc},
-                                      upsert=True)
-                #coll_meta.insert_many(worker_docs)
-
-    def update_meta(self, gpu_id, cpu_id, max_cursor_id):
-        db = self.__get_db()
-        coll_meta = db[self.meta_collection]
-        coll_meta.update_one({"$and":[{"gpu_id": gpu_id}, {"cpu_id": cpu_id}]}, 
-                             {"$set": {"max_cursor_id": max_cursor_id}}, 
-                             upsert=False)
-
-    def get_max_cursor_ids(self):
-        db = self.__get_db()
-        coll_meta = db[self.meta_collection]
-        max_cursor_ids = {}
-        cursor = coll_meta.find({})
-        for doc in cursor:
-            max_cursor_ids[(doc["gpu_id"], doc["cpu_id"])] = doc["max_cursor_id"]
-        return max_cursor_ids
+    def reset(self):
+        coll = self.__get_collection()
+        coll.update_many({}, {"$unset": {self.predicted_field: 1, self.nt_field: 1}})
 
     def write_predictions(self, predictions):
         coll = self.__get_collection()
-        coll.insert_many(predictions)
+        for prediction in predictions:
+            coll.update_one({"id": prediction["id"]}, {"$set": {self.nt_field: prediction["nts"],
+                                                                self.predicted_field: True}}, 
+                                                                upsert=False)
 
-    def validate_ids(self, delete_duplicates=False):
+    def get_not_predicted_cursor(self, doc_offset, doc_len):
         coll = self.__get_collection()
-        q = coll.aggregate([
-          { "$group": {
-            "_id": { "id": "$id" }, 
-            "uniqueIds": { "$addToSet": "$_id" },
-            "count": { "$sum": 1 } 
-          } }, 
-          { "$match": { 
-            "count": { "$gte": 2 } 
-          } },
-          { "$sort" : { "count" : -1} },
-        ], allowDiskUse=True)
-        non_unique_docs = [v for v in q]
-        for v in non_unique_docs:
-            print(v["_id"]["id"])
-        print("N not unique:", len(non_unique_docs))
+        cursor = coll.find({self.predicted_field: False},
+                            no_cursor_timeout=True).skip(doc_offset).limit(doc_len)
+        return cursor
 
-        print("Delete...")
-        if delete_duplicates:
-            for v in non_unique_docs:
-                coll.delete_one({"_id": v["uniqueIds"][0]})
+    def count_docs(self, query):
+        coll = self.__get_collection()
+        n_docs = coll.count_documents(query)
+        return n_docs
 
+if __name__ == "__main__":
+    predict_id = 3
+    db_name = "synful_synapses"
+    collection_name = "partners"
+    credentials = "/groups/funke/home/ecksteinn/Projects/synex/synisterbrain/db_credentials.ini"
+    db = BrainDb(credentials, db_name, collection_name, predict_id)
+    db.initialize()
+    #db.write_prediction({"id": 0, "nts": {"ach": 0.8, "gaba": 0.01, "dop": 0.3}})

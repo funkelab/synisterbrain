@@ -16,14 +16,14 @@ log = logging.getLogger(__name__)
 def get_data_loader(db_credentials,
                     db_name,
                     collection_name,
+                    predict_id,
                     dataset,
                     dx, dy, dz,
                     n_gpus,
                     gpu_id,
                     n_cpus,
                     batch_size,
-                    prefetch_factor, 
-                    max_cursor_ids):
+                    prefetch_factor):
 
     log.info(f"Initialize data loader {gpu_id+1}/{n_gpus}...")
     log.info(f"with {n_cpus} cpus, {batch_size} batch size, prefetch {prefetch_factor}")
@@ -31,20 +31,18 @@ def get_data_loader(db_credentials,
     mongo_em_dataset = MongoEM(db_credentials,
                                db_name,
                                collection_name,
+                               predict_id,
                                dataset,
                                dx,
                                dy,
                                dz,
                                n_gpus=n_gpus,
-                               gpu_id=gpu_id,
-                               max_cursor_ids=max_cursor_ids)
+                               gpu_id=gpu_id)
 
     def collate_fn(batch):
         batch_data = {"id": [b["id"] for b in batch], 
-                      "data": torch.cat([b["data"] for b in batch], dim=0), 
-                      "cursor_id": [b["cursor_id"] for b in batch],
-                      "gpu_id": [b["gpu_id"] for b in batch],
-                      "cpu_id": [b["cpu_id"] for b in batch]}
+                      "data": torch.cat([b["data"] for b in batch], dim=0)
+                      }
         return batch_data
     
     mongo_em_data_loader = DataLoader(mongo_em_dataset, 
@@ -62,13 +60,13 @@ class MongoEM(IterableDataset):
                  db_credentials,
                  db_name,
                  collection_name,
+                 predict_id,
                  dataset,
                  dx,
                  dy,
                  dz,
                  n_gpus=1,
-                 gpu_id=0,
-                 max_cursor_ids=None):
+                 gpu_id=0):
 
         log.info(f"Initialize dataset {gpu_id+1}/{n_gpus}...")
         self.db_name = db_name
@@ -80,7 +78,7 @@ class MongoEM(IterableDataset):
         self.dz = dz
         self.n_gpus = n_gpus
         self.gpu_id = gpu_id
-        self.max_cursor_ids = max_cursor_ids
+        self.predict_id = predict_id
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -89,6 +87,7 @@ class MongoEM(IterableDataset):
             return MongoIterator(self.db_credentials,
                                  self.db_name,
                                  self.collection_name,
+                                 self.predict_id,
                                  self.dataset,
                                  self.dx,
                                  self.dy,
@@ -97,7 +96,6 @@ class MongoEM(IterableDataset):
                                  self.gpu_id,
                                  n_cpus=1,
                                  cpu_id=0,
-                                 max_cursor_ids=self.max_cursor_ids,
                                  transform=self.transform_to_tensor)
         else:
             n_cpus = int(worker_info.num_workers)
@@ -107,6 +105,7 @@ class MongoEM(IterableDataset):
             return MongoIterator(self.db_credentials,
                                  self.db_name,
                                  self.collection_name,
+                                 self.predict_id,
                                  self.dataset,
                                  self.dx,
                                  self.dy,
@@ -115,7 +114,6 @@ class MongoEM(IterableDataset):
                                  self.gpu_id,
                                  n_cpus=n_cpus,
                                  cpu_id=cpu_id,
-                                 max_cursor_ids=self.max_cursor_ids,
                                  transform=self.transform_to_tensor)
 
     def transform_to_tensor(self, data_array):
@@ -129,14 +127,16 @@ if __name__ == "__main__":
     mongo_em = MongoEM("/groups/funke/home/ecksteinn/Projects/synex/synister/db_credentials.ini",
                        "synful_synapses",
                        "partners",
+                       3,
                        Fafb(),
                        400,
                        400,
-                       80)
+                       80,
+                       2,
+                       1)
 
     i = 0
     for doc in mongo_em:
-        print(doc[0])
-        print(doc[1].shape)
+        print(doc)
         i += 1
         if i > 2: break

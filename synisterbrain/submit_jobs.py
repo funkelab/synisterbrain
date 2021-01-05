@@ -17,10 +17,9 @@ import logging
 import torch
 
 def submit_jobs(db_credentials,
-                db_name_read,
-                collection_name_read,
-                db_name_write,
-                collection_name_write,
+                db_name,
+                collection_name,
+                predict_id,
                 dataset,
                 model,
                 n_gpus,
@@ -32,9 +31,10 @@ def submit_jobs(db_credentials,
                 mount_dirs=["/nrs", "/scratch", "/groups", "/misc"]):
 
     brain_db = BrainDb(db_credentials,
-                       db_name_write,
-                       collection_name_write)
-    brain_db.create(n_gpus, n_cpus)
+                       db_name,
+                       collection_name,
+                       predict_id)
+    #brain_db.initialize()
 
     dx = model.input_shape[2] * dataset.voxel_size[2]
     dy = model.input_shape[1] * dataset.voxel_size[1]
@@ -44,8 +44,8 @@ def submit_jobs(db_credentials,
     dataset_name = dataset.name
 
     for gpu_id in range(n_gpus):
-        base_cmd = f"python -u {job_script} --creds {db_credentials} --dbr {db_name_read} "+\
-                   f"--collr {collection_name_read} --dbw {db_name_write} --collw {collection_name_write} "+\
+        base_cmd = f"python -u {job_script} --creds {db_credentials} --db {db_name} "+\
+                   f"--coll {collection_name} --id {predict_id} "+\
                    f"--dat {dataset_name} --gpus {n_gpus} " +\
                    f"--cpus {n_cpus} --bsize {batch_size} --prefetch {prefetch_factor} --gpuid {gpu_id}"
 
@@ -59,13 +59,9 @@ def submit_jobs(db_credentials,
                       execute=False,
                       expand=True)
         else:
-            #cmd = base_cmd.split(" ")
             cmd = base_cmd
         
-        #cmd = [c.replace('"',"") for c in cmd.split(" ")]
-
         cmd = [c for c in cmd.split(" ") if c != '']
-        #print(*cmd)
         cmd_string = ""
         for c in cmd:
             cmd_string += str(c) + " "
@@ -75,16 +71,15 @@ def submit_jobs(db_credentials,
 if __name__ == "__main__":
     log_config("brain.log")
     submit_jobs(db_credentials="/groups/funke/home/ecksteinn/Projects/synex/synisterbrain/db_credentials.ini",
-                db_name_read="synful_synapses",
-                collection_name_read="partners",
-                db_name_write="synful_predictions",
-                collection_name_write="predictions_v2",
+                db_name="synful_synapses",
+                collection_name="partners",
+                predict_id=3,
                 dataset=Fafb(),
                 model=FafbModel(),
-                n_gpus=20,
+                n_gpus=2,
                 n_cpus=5,
-                batch_size=8,
-                prefetch_factor=10,
+                batch_size=16,
+                prefetch_factor=20,
                 queue="gpu_any",
                 singularity_container=None,
                 mount_dirs=["/nrs", "/scratch", "/groups", "/misc"])
