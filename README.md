@@ -9,3 +9,10 @@ pip install -r requirements.txt
 pip install .
 ```
 
+## Usage
+Requires a database collection holding all synaptic locations that are to be predicted, e.g. a mongo import of Buhmann synapses. For an example call to start predictions see `synisterbrain/submit_jobs.py`
+
+Start via:
+```
+python synisterbrain/submit_jobs.py
+```
