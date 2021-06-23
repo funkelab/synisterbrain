@@ -1,5 +1,5 @@
 # Synisterbrain
-A package to facilitate the prediction of neurotransmitters in whole brain scale synapse datasets, e.g. all automatically predicted Buhmann Synapses in FAFB (~240,000,000).
+A package to facilitate the prediction of neurotransmitters in whole brain scale synapse datasets, e.g. all automatically predicted Buhmann Synapses in FAFB (~240,000,000). This is donee by iterating in parallel over a large mongoDB collection and distributing this to multiple GPU workers.
 
 ## Installation
 ```
