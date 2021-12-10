@@ -22,10 +22,12 @@ class BrainDb(object):
         self.predict_id = predict_id
         self.nt_field = f"nts_{self.predict_id}"
         self.meta_collection = collection_name + "_meta"
+        self.__client_session = None
 
     def __get_client(self):
-        client = MongoClient(self.auth_string, connect=False)
-        return client
+        if self.__client_session is None:
+            self.__client_session = MongoClient(self.auth_string, connect=False)
+        return self.__client_session
 
     def __get_db(self, db_name=None):
         if db_name is None:
