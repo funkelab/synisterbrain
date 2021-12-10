@@ -71,6 +71,19 @@ class BrainDb(object):
         n_docs = coll.count_documents(query)
         return n_docs
 
+    def write_state_metadata(self, metadata):
+        self.__get_db()["state_metadata"].update_one(
+            {"collection": self.collection},
+            {"$set": {"metadata": metadata}},
+            upsert=True,
+        )
+
+    def write_synapses(self, synapses):
+        self.__get_collection().insert_many(synapses)
+
+    def drop_collection(self):
+        self.__get_db().drop_collection(self.collection)
+
 if __name__ == "__main__":
     predict_id = 3
     db_name = "synful_synapses"
