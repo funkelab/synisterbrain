@@ -5,16 +5,14 @@ import numpy as np
 
 from synisterbrain.loader import get_data_loader
 from synisterbrain.brain_db import BrainDb
-from synistereq.models import FafbModel, HemiModel
-from synistereq.datasets import Fafb, Hemi
+from synistereq.models import KNOWN_MODELS
+from synistereq.datasets import KNOWN_DATASETS
 from synistereq.utils import log_config
 import torch
 import pymongo
 
 import logging
 log = logging.getLogger(__name__)
-
-models = {"FAFB": (Fafb, FafbModel), "HEMI": (Hemi, HemiModel)}
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--creds', help='Db credentials file path')
@@ -107,9 +105,8 @@ def predict(db_credentials,
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    dset_model = models[args.dat]
-    dset = dset_model[0]()
-    model = dset_model[1]()
+    dset = KNOWN_DATASETS[args.dat]()
+    model = KNOWN_MODELS[args.dat]()
     log_config(f"worker_{args.gpuid}.log")
 
     predict(args.creds,
