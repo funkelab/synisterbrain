@@ -70,7 +70,6 @@ def predict(db_credentials,
             torch_model.eval()
 
             log.info(f"Start prediction...")
-            nt_probabilities = []
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             for i, sample in enumerate(tqdm(data_loader, position=gpu_id, desc=f"GPU {gpu_id}")):
                 # Cursor done
@@ -87,8 +86,7 @@ def predict(db_credentials,
                 for k in range(np.shape(prediction)[0]):
                     out_k = prediction[k,:].tolist()
                     pred = {}
-                    nt_probability = {model.neurotransmitter_list[i]:
-                                      out_k[i] for i in range(len(model.neurotransmitter_list))}
+                    nt_probability = {nt: p for nt, p in zip(model.neurotransmitter_list, out_k)}
                     pred["nts"] = nt_probability
                     pred["id"] = ids[k]
                     batch_prediction.append(pred)
