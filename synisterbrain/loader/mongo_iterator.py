@@ -53,7 +53,7 @@ class MongoIterator(object):
         return ch
 
     def get_cursor(self, n_gpus, n_cpus, gpu_id, cpu_id):
-        n_open_documents = self.db.count_docs({self.db.predicted_field: False})
+        n_open_documents = self.db.len_not_predicted()
         gpu_chunks = self.get_chunks(n_open_documents, n_gpus)
         print(len(gpu_chunks))
         print(gpu_chunks)

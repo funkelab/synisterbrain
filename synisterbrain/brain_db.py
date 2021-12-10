@@ -20,7 +20,6 @@ class BrainDb(object):
         self.db_name = db_name
         self.collection = collection_name
         self.predict_id = predict_id
-        self.predicted_field = f"predicted_{self.predict_id}"
         self.nt_field = f"nts_{self.predict_id}"
         self.meta_collection = collection_name + "_meta"
 
@@ -41,25 +40,29 @@ class BrainDb(object):
 
     def initialize(self):
         coll = self.__get_collection()
+        coll.create_index("id")
         self.reset()
-        coll.update_many({}, {"$set": {self.predicted_field: False}}, upsert=False)
 
     def reset(self):
         coll = self.__get_collection()
-        coll.update_many({}, {"$unset": {self.predicted_field: 1, self.nt_field: 1}})
+        coll.update_many({}, {"$unset": {self.nt_field: 1}})
 
     def write_predictions(self, predictions):
         coll = self.__get_collection()
         for prediction in predictions:
-            coll.update_one({"id": prediction["id"]}, {"$set": {self.nt_field: prediction["nts"],
-                                                                self.predicted_field: True}}, 
+            coll.update_one({"id": prediction["id"]}, {"$set": {self.nt_field: prediction["nts"]}},
                                                                 upsert=False)
 
     def get_not_predicted_cursor(self, doc_offset, doc_len):
         coll = self.__get_collection()
-        cursor = coll.find({self.predicted_field: False},
-                            no_cursor_timeout=True).skip(doc_offset).limit(doc_len)
+        cursor = coll.find(
+                    {self.nt_field: {"$exists": False}},
+                    no_cursor_timeout=True,
+                ).sort("_id", ASCENDING).skip(doc_offset).limit(doc_len)
         return cursor
+
+    def len_not_predicted(self):
+        return self.count_docs({self.nt_field: {"$exists": False}})
 
     def count_docs(self, query):
         coll = self.__get_collection()
