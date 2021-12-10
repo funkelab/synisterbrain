@@ -40,6 +40,9 @@ def get_data_loader(db_credentials,
                                gpu_id=gpu_id)
 
     def collate_fn(batch):
+        batch = [b for b in batch if b is not None]
+        if len(batch) == 0:
+            return None
         batch_data = {"id": [b["id"] for b in batch], 
                       "data": torch.cat([b["data"] for b in batch], dim=0)
                       }
