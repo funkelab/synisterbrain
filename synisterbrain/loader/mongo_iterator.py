@@ -34,11 +34,8 @@ class MongoIterator(object):
         log.info(f"...took {time.time() - start} seconds")
 
         self.dataset = dataset
-        self.container = dataset.container
-        self.dset = dataset.dataset
-        self.voxel_size = dataset.voxel_size
-        self.data = daisy.open_ds(self.container,
-                                  self.dset)
+        self.data = dataset.open_daisy()
+
         self.transform = transform
 
         if dx % 8 != 0 or dy % 8 != 0 or dz % 80 != 0:
