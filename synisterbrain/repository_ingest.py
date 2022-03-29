@@ -12,9 +12,9 @@ def ingest(db: BrainDb, repo: Repository, resume_offset=None):
         repo.service.pre_synapse_batches(resume_offset=resume_offset),
         desc="Importing synapses",
     ):
-        positions = batch[[*"xyz"]].values
+        positions = batch[[*"zyx"]].values
         positions = repo.transform_positions(positions)
-        batch[[*"xyz"]] = positions
+        batch[[*"zyx"]] = positions
 
         batch.reset_index(inplace=True)
         batch.rename(columns={a: f"pre_{a}" for a in "xyz"}, inplace=True)
