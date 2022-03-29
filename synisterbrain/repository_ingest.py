@@ -1,4 +1,6 @@
 import argparse
+import numpy as np
+import pandas as pd
 from tqdm import tqdm
 
 from synistereq.repositories import KNOWN_REPOSITORIES, Repository
@@ -8,8 +10,17 @@ from synisterbrain.brain_db import BrainDb
 def ingest(db: BrainDb, repo: Repository, resume_offset=None):
     db.write_state_metadata(repo.service.get_state_metadata())
 
+    ingest_batch_sequence(db, repo, repo.service.pre_synapse_batches(resume_offset=resume_offset))
+
+
+def ingest_dataframe(db: BrainDb, repo: Repository, df, n_batches=1_000):
+    batches = np.array_split(df, n_batches)
+    ingest_batch_sequence(db, repo, batches)
+
+
+def ingest_batch_sequence(db: BrainDb, repo: Repository, batch_sequence):
     for batch in tqdm(
-        repo.service.pre_synapse_batches(resume_offset=resume_offset),
+        batch_sequence,
         desc="Importing synapses",
     ):
         positions = batch[[*"zyx"]].values
@@ -40,6 +51,9 @@ parser.add_argument(
 parser.add_argument(
     "--resume", required=False, type=int, help="Resume from offset index"
 )
+parser.add_argument(
+    "--feather", required=False, help="Feather dataframe", type=str, default=None,
+)
 
 
 if __name__ == "__main__":
@@ -52,4 +66,10 @@ if __name__ == "__main__":
         db.drop_collection()
         db.initialize()
 
-    ingest(db, repo, args.resume)
+    if args.feather is not None:
+        df = pd.read_feather(args.feather)
+        if "synapse_id" not in df.columns:
+            df["synapse_id"] = repo.service._synapse_ids(df)
+        ingest_dataframe(db, repo, df)
+    else:
+        ingest(db, repo, args.resume)
