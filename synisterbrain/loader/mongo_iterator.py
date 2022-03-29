@@ -91,6 +91,10 @@ class MongoIterator(object):
             array = self.data[roi]
             array.materialize()
             array_data = array.data.astype(np.float32)
+        elif self.data.roi.intersects(roi):
+            array_data = self.data.to_ndarray(roi=roi, fill_value=0).astype(np.float32)
+
+        if array_data is not None:
             array_data = self.dataset.normalize(array_data)
 
         if self.transform is not None and array_data is not None:
